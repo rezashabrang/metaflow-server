@@ -1,0 +1,116 @@
+# Copyright(c) 2022 aasaam software development group
+version: "3.7"
+
+services:
+  mf-service:
+    image: netflixoss/metaflow_metadata_service:v2.4.3
+    restart: always
+    container_name: mf-service
+    ports:
+      - "${MF_MIGRATION_PORT:-8082}:${MF_MIGRATION_PORT:-8082}"
+      - "${MF_METADATA_PORT:-8080}:${MF_METADATA_PORT:-8080}"
+    environment:
+      - MF_METADATA_DB_HOST=${MF_METADATA_DB_HOST}
+      - MF_METADATA_DB_PORT=5432
+      - MF_METADATA_DB_USER=${POSTGRES_USER}
+      - MF_METADATA_DB_PSWD=${POSTGRES_PASSWORD}
+      - MF_METADATA_DB_NAME=${POSTGRES_DB}
+      - MF_MIGRATION_ENDPOINTS_ENABLED=1
+      - MF_METADATA_PORT=${MF_METADATA_PORT:-8080}
+      - MF_METADATA_HOST=${MF_METADATA_HOST:-0.0.0.0}
+      - MF_MIGRATION_PORT=${MF_MIGRATION_PORT:-8082}
+      - METAFLOW_DEFAULT_DATASTORE=local
+    depends_on:
+      - mf-postgres
+    networks:
+      - mf-net
+
+  mf-ui:
+    image: ghcr.io/rezashabrang/metaflow-ui-backend:latest
+    restart: always
+    container_name: mf-ui
+    ports:
+      - 8083:8083
+    environment:
+      - MF_METADATA_DB_HOST=${MF_METADATA_DB_HOST}
+      - MF_METADATA_DB_PORT=5432
+      - MF_METADATA_DB_USER=${POSTGRES_USER}
+      - MF_METADATA_DB_PSWD=${POSTGRES_PASSWORD}
+      - MF_METADATA_DB_NAME=${POSTGRES_DB}
+      - MF_UI_METADATA_PORT=${MF_UI_METADATA_PORT:-8083}
+      - MF_UI_METADATA_HOST=${MF_UI_METADATA_HOST:-0.0.0.0}
+      - MF_METADATA_DB_POOL_MIN=1
+      - MF_METADATA_DB_POOL_MAX=10
+      - LOGLEVEL=INFO
+      - AIOPG_ECHO=0
+      - UI_ENABLED=1
+      - PREFETCH_RUNS_SINCE=2592000 # 30 days in seconds
+      - PREFETCH_RUNS_LIMIT=1 # Prefetch only one run
+      - S3_NUM_WORKERS=2
+      - CACHE_ARTIFACT_MAX_ACTIONS=4
+      - CACHE_DAG_MAX_ACTIONS=4
+      - CACHE_ARTIFACT_STORAGE_LIMIT=16000000
+      - CACHE_DAG_STORAGE_LIMIT=16000000
+      - WS_POSTPROCESS_CONCURRENCY_LIMIT=8
+      - FEATURE_PREFETCH_DISABLE=0
+      - FEATURE_CACHE_DISABLE=0
+      - FEATURE_S3_DISABLE=0
+      - FEATURE_REFINE_DISABLE=0
+      - FEATURE_WS_DISABLE=0
+      - FEATURE_HEARTBEAT_DISABLE=0
+      - FEATURE_DB_LISTEN_DISABLE=0
+      - FEATURE_ARTIFACT_SEARCH=1
+      - FEATURE_ARTIFACT_TABLE=1
+      - GA_TRACKING_ID=none
+      - METAFLOW_DEFAULT_DATASTORE=${METAFLOW_DEFAULT_DATASTORE}
+      - METAFLOW_DATASTORE_SYSROOT_S3=${METAFLOW_DATASTORE_SYSROOT_S3}
+      - METAFLOW_S3_ENDPOINT_URL=${METAFLOW_S3_ENDPOINT_URL}
+      - AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+    depends_on:
+      - mf-postgres
+      - mf-service
+      - mf-minio
+    networks:
+      - mf-net
+
+  mf-postgres:
+    image: postgres:15.3
+    restart: always
+    container_name: mf-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - mf-db-vol:/var/lib/postgresql/data
+    networks:
+      - mf-net
+
+  mf-minio:
+    container_name: mf-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    volumes:
+      - mf-minio-vol:/minio_data
+    command: minio server /minio_data --console-address :9001
+    ports:
+      - 9001:9001
+      - 9000:9000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - mf-net
+
+networks:
+  mf-net:
+    name: mf-net
+
+volumes:
+  mf-db-vol:
+  mf-minio-vol:
